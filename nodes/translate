@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+"""
+Subscribes to turtle_vel topic for a TurtleVel message (containing linear and angular components) and publishes 
+a Twist message to the cmd_vel topic
+
+PUBLISHERS:
+    + cmd_vel (geometry_msgs/Twist) ~ the linear and angular components of the turtle's velocity.
+
+SUBSCRIBERS:
+    + turtle_cmd (turtle_control/TurtleVelocity) ~ the linear and angular components of the turtle's velocity.
+"""
+import rospy
+from turtle_control.msg import TurtleVelocity
+from geometry_msgs.msg import Twist
+
+
+class Translate:
+    """
+    Subscribes to a TurtleVel message and publishes a Twist message
+    """
+    def __init__(self):
+        self.pub = rospy.Publisher("turtle1/cmd_vel", Twist, queue_size = 10)
+        rospy.Subscriber("turtle_cmd", TurtleVelocity, self.turtle_vel_callback)
+
+    def turtle_vel_callback(self, data):
+        rospy.logdebug("linear = %s, angular %s", data.linear, data.angular)
+
+        twist_msg = Twist()
+
+        twist_msg.linear.x = data.linear
+        twist_msg.linear.y = 0.0
+        twist_msg.linear.z = 0.0
+        twist_msg.angular.x = 0.0
+        twist_msg.angular.y = 0.0
+        twist_msg.angular.z = data.angular
+
+        self.pub.publish(twist_msg)
+
+        return
+
+def main():
+    """
+    The main() function
+    """
+    rospy.init_node('translate', anonymous=True)
+    translate = Translate()
+    rospy.spin()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

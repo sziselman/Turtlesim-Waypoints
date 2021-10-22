@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+
+"""
+Subscribes to the turtles position and commands it to follow a series of waypoints
+
+SUBSCRIBERS:
+    + turtle1/pose (turtlesim/Pose) ~ the x, y, theta of the turtle
+PUBLISHERS:
+    + turtle_cmd (turtle_control/TurtleVelocity) ~ the linear and angular velocity command to the turtle
+CLIENTS:
+    + draw (std_srvs/Empty) ~ draw service offered by the setup node, clears the turtlesim and marks the waypoints
+SERVICES:
+    + start (turtle_sim/Start) ~ calls the draw service, then commands the turtle to start following the waypoints
+"""
+import rospy
+import math
+from turtlesim.msg import Pose
+from turtlesim.srv import TeleportAbsolute
+from turtle_control.msg import TurtleVelocity
+from turtle_control.srv import Start, StartResponse
+from std_srvs.srv import Empty
+from std_msgs.msg import Float64
+
+class Follow:
+    def __init__(self):
+        # parameters
+        self.waypoints = rospy.get_param("waypoints")
+        self.dist_thresh = rospy.get_param("dist_thresh")
+        self.max_xdot = rospy.get_param("max_xdot")
+        self.max_wdot = rospy.get_param("max_wdot")
+
+        # subs, pubs, servs, etc.
+        rospy.Subscriber("turtle1/pose", Pose, self.pose_callback)
+        self.cmd_pub = rospy.Publisher("/turtle_cmd", TurtleVelocity, queue_size = 10)
+        self.restart = rospy.Service("restart", Start, self.restart_callback)
+        self.draw_client = rospy.ServiceProxy("draw", Empty)
+        self.teleAbs = rospy.ServiceProxy("turtle1/teleport_absolute", TeleportAbsolute)
+        self.tmr = rospy.Timer(rospy.Duration(0.008333), self.timer_callback)
+
+        # other variables
+        self.turtle_pose = Pose()
+        self.target_waypoint_ind = None
+        self.rotate = False
+        self.translate = False
+
+    def pose_callback(self, data):
+        """ callback function for the subscriber of the pose topic for turtle1
+            Args:
+                data (turtlesim/Pose) : the x, y, theta of the turtle
+            Returns:
+                None
+        """
+        rospy.logdebug("received a pose message!")
+        self.turtle_pose = data
+        return
+
+    def restart_callback(self, req):
+        """ callback function for the restart service of type turtle_control/Start
+            Args:
+                req.x (float) : the starting x location of the turtle
+                req.y (float) : the starting y location of the turtle
+            Returns:
+                res (float) : the distance the turtle travels to get to all waypoints
+        """
+
+        if (req.x > 11.0) or (req.y > 11.0):
+            return StartResponse(distance = None)
+
+        # implement the draw service offered by the setup node
+        rospy.wait_for_service('/draw')
+        self.draw_client()
+
+        # reset position of the turtle to starting location
+        self.teleAbs(x = req.x, y = req.y, theta = 0.0)
+
+        # compute the theoretical distance traveled by the robot after traveling from start location to all waypoints
+        curr_pos = [req.x, req.y]
+        distance = 0
+
+        for waypoint in self.waypoints:
+            next_pos = [waypoint[0], waypoint[1]]
+
+            distance += math.sqrt((curr_pos[0] - next_pos[0])**2 + (curr_pos[1] - next_pos[1])**2)
+
+            curr_pos = [waypoint[0], waypoint[1]]
+
+        self.target_waypoint_ind = 0
+        # self.rotate = True
+
+        return StartResponse(distance)
+
+    def timer_callback(self, event):
+        """
+        timer callback function
+        """
+        cmd_msg = TurtleVelocity()
+
+        # if the index of the target waypoint is none, send 0.0 to cmd vel
+        if self.target_waypoint_ind == None:
+            cmd_msg.linear = 0.0
+            cmd_msg.angular = 0.0
+            self.cmd_pub.publish(cmd_msg)
+        else:
+            # current waypoint
+            curr_waypoint = self.waypoints[self.target_waypoint_ind]
+
+            # desired orientation (facing target waypoint)
+            desired_theta = math.atan2(curr_waypoint[1] - self.turtle_pose.y, curr_waypoint[0] - self.turtle_pose.x)
+
+            # distance between the turtle and the target waypoint
+            dist = math.sqrt((curr_waypoint[1] - self.turtle_pose.y)**2 + (curr_waypoint[0] - self.turtle_pose.x)**2)
+
+            # the difference in orientation
+            orientation_diff = desired_theta - self.turtle_pose.theta
+            # the sign of the difference in orientation (pos if ccw, neg if cw)
+            if orientation_diff == 0.0:
+                sign = 1.0
+            else:
+                sign = orientation_diff / math.fabs(orientation_diff)
+
+            if orientation_diff == math.pi or orientation_diff == -math.pi:
+                sign = 1.0
+            elif orientation_diff > math.pi:
+                sign = -1.0
+            elif orientation_diff < -math.pi:
+                sign = 1.0
+            
+            # check to see if turtle needs to rotate
+            if math.fabs(desired_theta - self.turtle_pose.theta) < 0.15:
+                self.rotate = False
+            else:
+                self.rotate = True
+            
+            # check to see if turtle needs to translate
+            if dist < self.dist_thresh:
+                self.translate = False
+            else:
+                self.translate = True
+
+            if self.rotate == True:
+                cmd_msg.linear = 0.0
+                cmd_msg.angular = sign * self.max_wdot
+            else:
+                if self.translate == True:
+                    cmd_msg.linear = self.max_xdot
+                    cmd_msg.angular = 0.0
+                else:
+                    self.target_waypoint_ind = (self.target_waypoint_ind + 1) % len(self.waypoints)
+                    cmd_msg.linear = 0.0
+                    cmd_msg.angular = 0.0
+
+            self.cmd_pub.publish(cmd_msg)
+
+def main():
+    """ The main() function """
+    rospy.init_node('follow')
+    follow = Follow()
+    rospy.spin()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

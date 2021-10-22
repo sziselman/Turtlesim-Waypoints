@@ -1,0 +1,86 @@
+#!/usr/bin/env python
+
+"""
+Offers a service that draws an x at each waypoint
+CLIENTS:
+    + clear (std_srvs/Empty) ~ clears the turtlesim
+    + reset (std_srvs/Empty) ~ resets the turtlesim
+    + turtle1/teleport_absolute (turtlesim/TeleportAbsolute) ~ teleports the turtle to an absolute position
+    + turtle1/set_pen (turtlesim/SetPen) ~ sets the parameters of the turtle's pen
+SERVICES:
+    + draw (std_srvs/Empty) ~ resets the turtle, draws an x at each waypoint
+"""
+import rospy
+from std_srvs.srv import Empty, EmptyResponse
+from turtlesim.srv import Spawn, TeleportAbsolute, SetPen
+
+class Setup:
+    def __init__(self):
+        self.waypoints = rospy.get_param("waypoints")
+
+        self.draw = rospy.Service("draw", Empty, self.draw_callback)
+        self.clear = rospy.ServiceProxy("clear", Empty)
+        self.reset = rospy.ServiceProxy("reset", Empty)
+        self.teleAbs = rospy.ServiceProxy("turtle1/teleport_absolute", TeleportAbsolute)
+        self.setPen = rospy.ServiceProxy("turtle1/set_pen", SetPen)
+
+    def draw_callback(self, data):
+        """ callback function for the draw service, teleports the turtle to the first waypoint, clears the drawings, then draws an x at each waypoint
+            Args:
+                data (EmptyRequest)
+            Returns:
+                EmptyResponse
+        """
+        # resets the turtlesim
+        self.reset()
+
+        # teleport the turtle to the first waypoint
+        self.teleAbs(x = self.waypoints[0][0], y = self.waypoints[0][1], theta = 0.0)
+
+        # clears all drawings
+        self.clear()
+
+        # have the turtle draw an x at each waypoint
+        for waypoint in self.waypoints:
+            self.draw_x(waypoint)
+
+        return EmptyResponse()
+
+    def draw_x(self, waypoint):
+        """ function called to draw an "x" at each waypoint
+            Args:
+                waypoint (list of floats) : the x location (0 index) and y location (1 index) of the waypoint
+            Returns:
+                None
+        """
+        x_loc = waypoint[0]
+        y_loc = waypoint[1]
+
+        # teleport to the waypoint location
+        self.teleAbs(x = x_loc, y = y_loc, theta = 0.0)
+
+        # turn the pen on
+        self.setPen(r = 255, g = 192, b = 203, width = 5, off = 0)
+
+        # draw the x
+        self.teleAbs(x = x_loc - 0.5, y = y_loc + 0.5, theta = 0.0)
+        self.teleAbs(x = x_loc + 0.5, y = y_loc - 0.5, theta = 0.0)
+        self.teleAbs(x = x_loc, y = y_loc, theta = 0.0)
+        self.teleAbs(x = x_loc + 0.5, y = y_loc + 0.5, theta = 0.0)
+        self.teleAbs(x = x_loc - 0.5, y = y_loc - 0.5, theta = 0.0)
+        self.teleAbs(x = x_loc, y = y_loc, theta = 0.0)
+
+        # turn the pen off
+        self.setPen(r = 255, g = 192, b = 203, width = 5, off = 1)
+
+def main():
+    """ The main() function """
+    rospy.init_node('setup')
+    setup = Setup()
+    rospy.spin()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

@@ -1,0 +1,4 @@
+dist_thresh: 0.025
+max_xdot: 2.0
+max_wdot: 1.0
+waypoints: [[1, 1], [6,1], [6, 6], [1, 6]]
